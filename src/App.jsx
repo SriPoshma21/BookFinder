@@ -3,17 +3,26 @@ import "./index.css";
 
 const BASE = "https://openlibrary.org/search.json";
 
-function coverUrl(cover_i, size = "M") {
-  return cover_i
-    ? `https://covers.openlibrary.org/b/id/${cover_i}-${size}.jpg`
-    : `https://covers.openlibrary.org/b/id/0-${size}.jpg`;
-} // Covers API pattern [10]
+// Helper to build cover image URLs
+// function coverUrl(cover_i, size = "M") {
+//   return cover_i
+//     ? `https://covers.openlibrary.org/b/id/${cover_i}-${size}.jpg`
+//     : `/placeholder-cover.png`;
+// }
 
-function esc(v) {
-  const t = (v || "").trim();
-  return t.includes(" ") ? `"${t.replaceAll('"', '\\"')}"` : encodeURIComponent(t);
+function coverUrl(cover_i, size = "M") {
+  return cover_i && Number(cover_i) > 0
+    ? `https://covers.openlibrary.org/b/id/${cover_i}-${size}.jpg`
+    : "/placeholder-cover.png";
 }
 
+// Escapes quotes/spaces for API queries
+function esc(v) {
+  const t = (v || "").trim();
+  return t.includes(" ") ? `${t.replaceAll('"', '\\"')}` : encodeURIComponent(t);
+}
+
+// Build OpenLibrary API search URL from params
 function buildUrl(p = {}) {
   const params = new URLSearchParams();
   const parts = [];
@@ -36,8 +45,9 @@ function buildUrl(p = {}) {
     ["key", "title", "author_name", "first_publish_year", "subject", "cover_i", "ia"].join(",")
   );
   return BASE + "?" + params.toString();
-} // Search API params and pagination [1]
+}
 
+// Custom hook to use OpenLibrary API
 function useOpenLibrarySearch(initial = {}) {
   const [params, setParams] = useState({ limit: 24, page: 1, sort: "relevance", ...initial });
   const [status, setStatus] = useState("idle"); // idle | loading | success | error | empty
@@ -45,7 +55,6 @@ function useOpenLibrarySearch(initial = {}) {
   const [error, setError] = useState(null);
   const abortRef = useRef(null);
   const url = useMemo(() => buildUrl(params), [params]);
-
   useEffect(() => {
     const hasQuery = params.q || params.title || params.author || params.subject || params.isbn;
     if (!hasQuery) {
@@ -59,7 +68,6 @@ function useOpenLibrarySearch(initial = {}) {
     abortRef.current = controller;
     setStatus("loading");
     setError(null);
-
     const id = setTimeout(async () => {
       try {
         const res = await fetch(url, { signal: controller.signal });
@@ -78,145 +86,131 @@ function useOpenLibrarySearch(initial = {}) {
         setStatus("error");
       }
     }, 300); // debounce
-
     return () => clearTimeout(id);
   }, [url]);
-
   function update(next) {
     setParams((p) => ({ ...p, ...next, page: next.page ?? 1 })); // reset page on param change
   }
-
   return { params, update, status, data, error };
 }
 
-function SearchControls({ onSearch, filters, setFilters }) {
+// Search/filter controls
+function SearchControls({ filters, setFilters, onSearch }) {
   return (
-    <div className="controls">
+    <form className="controls" onSubmit={e => { e.preventDefault(); onSearch(); }}>
       <div className="row">
         <input
+          type="text"
+          placeholder={`Search by ${filters.by}`}
+          aria-label={`Book search by ${filters.by}`}
           value={filters.q}
-          onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))}
-          onKeyDown={(e) => e.key === "Enter" && onSearch()}
-          placeholder="Search by title, author, subject, ISBN"
-          aria-label="Search books"
+          onChange={e => setFilters({ ...filters, q: e.target.value })}
         />
-        <button className="primary" onClick={onSearch}>Search</button>
-      </div>
-      <div className="row">
-        <input placeholder="Title" value={filters.title} onChange={(e) => setFilters((f) => ({ ...f, title: e.target.value }))} />
-        <input placeholder="Author" value={filters.author} onChange={(e) => setFilters((f) => ({ ...f, author: e.target.value }))} />
-        <input placeholder="Subject" value={filters.subject} onChange={(e) => setFilters((f) => ({ ...f, subject: e.target.value }))} />
-        <select value={filters.language} onChange={(e) => setFilters((f) => ({ ...f, language: e.target.value }))} aria-label="Language">
-          <option value="">Any language</option>
-          <option value="en">English</option>
-          <option value="fr">French</option>
-          <option value="es">Spanish</option>
-          <option value="de">German</option>
-        </select>
-        <select value={filters.sort} onChange={(e) => setFilters((f) => ({ ...f, sort: e.target.value }))} aria-label="Sort">
+        <select
+          value={filters.by}
+          aria-label="Search Type"
+          onChange={e => setFilters({ ...filters, by: e.target.value })}
+        >
+          <option value="title">Title</option>
+          <option value="author">Author</option>
+          <option value="subject">Subject</option>
+          <option value="language">Language</option>
+          <option value="year">Year</option>
           <option value="relevance">Relevance</option>
-          <option value="new">Newest</option>
-          <option value="old">Oldest</option>
-          <option value="random">Random</option>
-          <option value="key">Key</option>
         </select>
-        <input type="number" min="0" placeholder="Year from" value={filters.yearStart} onChange={(e) => setFilters((f) => ({ ...f, yearStart: e.target.value }))} />
-        <input type="number" min="0" placeholder="Year to" value={filters.yearEnd} onChange={(e) => setFilters((f) => ({ ...f, yearEnd: e.target.value }))} />
+        <button className="primary" type="submit">Find Books</button>
       </div>
+    </form>
+  );
+}
+
+// Displays book results in grid cards
+function BookGrid({ books }) {
+  return (
+    <div className="grid" role="list">
+      {books.map(book => (
+        <div className="card" key={book.key} role="listitem" tabIndex="0">
+          <img src={coverUrl(book.cover_i)} alt={`Cover of ${book.title}`} />
+          <div className="body">
+            <div className="title">{book.title}</div>
+            <div className="meta">
+              {book.author_name?.join(", ")} · {book.first_publish_year}
+            </div>
+            <div className="tags">
+              {book.subject?.slice(0, 4).map(sub => (
+                <span className="tag" key={sub}>{sub}</span>
+              ))}
+            </div>
+            {book.ia && <a href={`https://openlibrary.org${book.key}`} target="_blank" rel="noopener">Read</a>}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
 
-function Results({ status, data, page, setPage }) {
-  if (status === "idle") return <div className="center">Start typing and press Search.</div>; // initial state [1]
-  if (status === "loading") return <div className="center">Loading…</div>; // fetch state [6]
-  if (status === "error") return <div className="center">Something went wrong. Please try again.</div>; // error state [6]
-  if (status === "empty") return <div className="center">No results found.</div>; // no results [1]
-
-  const total = data?.numFound || 0;
-  const docs = data?.docs || [];
-  const LIMIT = 24;
-  const cap = Math.min(total, 1000);
-
+// Pagination buttons
+function Pagination({ page, totalPages, onPage }) {
   return (
-    <>
-      <div className="grid">
-        {docs.map((doc) => {
-          const title = doc.title || "Untitled";
-          const authors = (doc.author_name || []).join(", ") || "Unknown";
-          const year = doc.first_publish_year ? " · " + doc.first_publish_year : "";
-          const cover = coverUrl(doc.cover_i, "M");
-          const link = "https://openlibrary.org" + doc.key;
-          const tags = (doc.subject || []).slice(0, 5);
-          return (
-            <article key={doc.key} className="card" tabIndex={0} role="article" aria-label={title} onClick={() => window.open(link, "_blank")}>
-              <img src={cover} alt={`${title} cover`} loading="lazy" />
-              <div className="body">
-                <div className="title">{title}</div>
-                <div className="meta">{authors}{year}</div>
-                <div className="tags">
-                  {tags.map((t) => <span className="tag" key={t}>{t}</span>)}
-                </div>
-                <a href={link} onClick={(e)=>e.stopPropagation()} target="_blank" rel="noopener noreferrer">Open Library</a>
-              </div>
-            </article>
-          );
-        })}
-      </div>
-      <div className="pagination">
-        <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}>Prev</button>
-        <div className="center" style={{ padding: "8px 12px" }}>
-          Page {page} · {Math.min((page - 1) * LIMIT + docs.length, total)} of {total}
-        </div>
-        <button onClick={() => setPage((p) => p + 1)} disabled={page * LIMIT >= cap}>Next</button>
-      </div>
-    </>
+    <nav className="pagination" aria-label="Page navigation">
+      <button disabled={page === 1} onClick={() => onPage(page - 1)}>&lt;</button>
+      <span>Page {page} of {totalPages}</span>
+      <button disabled={page === totalPages} onClick={() => onPage(page + 1)}>&gt;</button>
+    </nav>
   );
 }
 
+// Main App
 export default function App() {
-  const [filters, setFilters] = useState({
-    q: "",
-    title: "",
-    author: "",
-    subject: "",
-    language: "",
-    yearStart: "",
-    yearEnd: "",
-    sort: "relevance"
-  });
-  const { params, update, status, data } = useOpenLibrarySearch({ limit: 24, sort: "relevance" });
+  const { params, update, status, data, error } = useOpenLibrarySearch();
+  const [filters, setFilters] = useState({ q: "", by: "title" });
 
-  const onSearch = () => {
-    update({
-      q: filters.q.trim(),
-      title: filters.title.trim(),
-      author: filters.author.trim(),
-      subject: filters.subject.trim(),
-      language: filters.language || undefined,
-      yearStart: filters.yearStart ? Number(filters.yearStart) : undefined,
-      yearEnd: filters.yearEnd ? Number(filters.yearEnd) : undefined,
-      sort: filters.sort
-    });
-  };
+  // Map filters to API params
+  function applySearch() {
+    let p = {
+      limit: 24,
+      page: 1,
+      sort: filters.by === "relevance" ? "relevance" : undefined,
+    };
+    if (filters.by === "title") p.title = filters.q;
+    else if (filters.by === "author") p.author = filters.q;
+    else if (filters.by === "subject") p.subject = filters.q;
+    else if (filters.by === "language") p.language = filters.q;
+    else if (filters.by === "year") {
+      p.yearStart = filters.q;
+      p.yearEnd = filters.q;
+    }
+    else p.q = filters.q;
+    update(p);
+    setFilters(prev => ({ ...prev, q: "" }));
+  }
 
   return (
     <div className="layout">
       <header>
         <div className="container">
-          <h1>Book Finder</h1>
-          <SearchControls onSearch={onSearch} filters={filters} setFilters={setFilters} />
+          <span className="logo" aria-hidden="true">📚</span>
+          <h1>BookFinder</h1>
         </div>
       </header>
-      <main className="container results">
-        <Results status={status} data={data} page={params.page || 1} setPage={(p) => {
-          const next = typeof p === "function" ? p(params.page || 1) : p;
-          update({ page: next });
-        }} />
+      <main className="container">
+        <SearchControls filters={filters} setFilters={setFilters} onSearch={applySearch} />
+
+        <section className="results" aria-live="polite">
+          {status === "loading" && <div className="center">Loading...</div>}
+          {status === "error" && <div className="center" role="alert">{error}</div>}
+          {status === "empty" && <div className="center">No results.</div>}
+          {status === "success" && <BookGrid books={data.docs} />}
+        </section>
+
+        {status === "success" && data.numFound > params.limit && (
+          <Pagination
+            page={params.page}
+            totalPages={Math.ceil(data.numFound / params.limit)}
+            onPage={p => update({ page: p })}
+          />
+        )}
       </main>
-      <footer>
-        <div className="container"><small>Data: Open Library APIs</small></div>
-      </footer>
     </div>
   );
 }
