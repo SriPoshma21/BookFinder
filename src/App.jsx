@@ -4,6 +4,29 @@ import "./index.css";
 
 const BASE = "https://openlibrary.org/search.json";
 
+// Predefined author options for autocomplete
+const authorOptions = [
+  // Famous Fiction Authors
+  "J.K. Rowling",
+  "George Orwell",
+  "Jane Austen",
+  "Mark Twain",
+  "Agatha Christie",
+  "Ernest Hemingway",
+  "F. Scott Fitzgerald",
+  "J.R.R. Tolkien",
+  "Stephen King",
+  "Dan Brown",
+  // Telugu Authors
+  "Viswanatha Satyanarayana",
+  "Chalam",
+  "Sri Sri",
+  "C. Narayana Reddy",
+  "Yaddanapudi Sulochana Rani",
+  "Tripuraneni Ramaswamy",
+  "Kandukuri Veeresalingam"
+];
+
 // Build book cover URL or fallback image
 function coverUrl(cover_i, size = "M") {
   return cover_i && Number(cover_i) > 0
@@ -22,8 +45,7 @@ function buildUrl(p = {}) {
   const params = new URLSearchParams();
   const parts = [];
   if (p.title) parts.push("title:" + esc(p.title));
-  if (p.author) parts.push("author:" + esc(p.author));
-  if (p.q) parts.push(p.q);
+  if (p.q) parts.push(p.q); // Use general query for author or custom queries
   if (parts.length) params.set("q", parts.join(" "));
   params.set("page", String(p.page || 1));
   params.set("limit", String(p.limit || 24));
@@ -45,7 +67,7 @@ function useOpenLibrarySearch(initial = {}) {
   const url = useMemo(() => buildUrl(params), [params]);
 
   useEffect(() => {
-    const hasQuery = params.q || params.title || params.author;
+    const hasQuery = params.q || params.title;
     if (!hasQuery) {
       setStatus("idle");
       setData(null);
@@ -85,7 +107,7 @@ function useOpenLibrarySearch(initial = {}) {
   return { params, update, status, data, error };
 }
 
-// Search input and type selector
+// Search input and type selector with author autocomplete
 function SearchControls({ filters, setFilters, onSearch }) {
   return (
     <form className="controls" onSubmit={(e) => { e.preventDefault(); onSearch(); }}>
@@ -95,7 +117,15 @@ function SearchControls({ filters, setFilters, onSearch }) {
           placeholder={`Search by ${filters.by}`}
           value={filters.q}
           onChange={(e) => setFilters({ ...filters, q: e.target.value })}
+          list={filters.by === "author" ? "author-options" : undefined}
         />
+        {filters.by === "author" && (
+          <datalist id="author-options">
+            {authorOptions.map((name) => (
+              <option key={name} value={name} />
+            ))}
+          </datalist>
+        )}
         <select
           value={filters.by}
           onChange={(e) => setFilters({ ...filters, by: e.target.value })}
@@ -118,9 +148,9 @@ function BookGrid({ books }) {
         <div className="card" key={book.key}>
           <img src={coverUrl(book.cover_i)} alt={`Cover of ${book.title}`} />
           <div className="body">
-            <div className="title">{book.title}</div>
+            <div className="title">{book.title || "No Title"}</div>
             <div className="meta">
-              {book.author_name?.join(", ")} · {book.first_publish_year}
+              {book.author_name?.length ? book.author_name.join(", ") : "Unknown Author"} · {book.first_publish_year || "N/A"}
             </div>
             <div className="tags">
               {book.subject?.slice(0, 3).map((sub) => (
@@ -145,7 +175,6 @@ function BookGrid({ books }) {
   );
 }
 
-
 // Pagination
 function Pagination({ page, totalPages, onPage }) {
   return (
@@ -165,7 +194,7 @@ export default function App() {
   function applySearch() {
     const p = { limit: 24, page: 1, sort: filters.by === "relevance" ? "relevance" : undefined };
     if (filters.by === "title") p.title = filters.q;
-    else if (filters.by === "author") p.author = filters.q;
+    else if (filters.by === "author") p.q = filters.q; // General query ensures results
     else p.q = filters.q;
     update(p);
   }
